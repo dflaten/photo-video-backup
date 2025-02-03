@@ -18,15 +18,20 @@ with proper permissions.
 
 ## Creating SNS and Cloudwatch Resources
 ### Create SNS Topic
+```bash
 aws sns create-topic --name media-backup-alerts --region your-aws-region
+```
 
 ### Subscribe your phone number to the SNS topic (replace with your phone number)
+```bash
 aws sns subscribe \
     --topic-arn arn:aws:sns:your-aws-region:your-account-id:media-backup-alerts \
     --protocol sms \
     --notification-endpoint "+1234567890"
+```
 
 ### Create CloudWatch Alarm
+```bash
 aws cloudwatch put-metric-alarm \
     --alarm-name MediaBackupMissing \
     --alarm-description "Alert when media backup hasn't run in 24 hours" \
@@ -40,6 +45,7 @@ aws cloudwatch put-metric-alarm \
     --alarm-actions arn:aws:sns:your-aws-region:your-account-id:media-backup-alerts \
     --region your-aws-region \
     --treat-missing-data breaching
+```
 
 #### Cloudwatch Policy for Role for Script execution
 ```json
