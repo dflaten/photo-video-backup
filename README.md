@@ -1,12 +1,30 @@
 # Photo Video Backup Scripts and Process
 
-TODO: Need to update the scripts below as they are just placeholders for now.
+TODO: Find a notification method for backup job failures. Then run my first backup.
 
 Scripts and programs to automate the backup of my personal photos and videos. I'm ussing [immich](https://immich.app/)
-for managing photos but want a backup on the cloud in case of local hardware failures. S3 Glacier - Deep Archive is
-the service I'm using for this.
+for managing photos but want a backup on the cloud in case of local hardware failures. I have evaluated two options to do this.
 
-The plan is to run the `daily-photo-video-backup.sh` with a cron job like so:
+I first looked at S3 Glacier as I am familiar with the service and the prices seem resonable. However when looking at what it
+would cost to retrieve all the photos in the future if I needed to restore a backup I realized the costs could get excessive.
+
+I have about 1 TB of photos/videos right now and would expect this to increase. Storage costs for S3 would be about $2 a month
+but retrieval costs on that 1 TB would be ~100$. See [pricing info here](https://aws.amazon.com/s3/pricing/).
+
+Backblaze will cost 6 dollars per TB per month and I will be able to store whatever I need there.
+
+
+## Backblaze b2 backup
+
+Will create a cron job that runs:
+
+`rclone copy /immich/directory b2remote:name-of-bucket/immich --progress`
+
+Once a week to update the backup. Will also see if I can set something up to text me if this doesn't work for some reason.
+
+## S3 Glacier - How I could use S3 in the future if I decide..
+
+The plan is to run the `daily-photo-video-backup-s3.sh` with a cron job like so:
 
 ```bash
 # Run backup at 2 AM
