@@ -3,18 +3,16 @@ provider "aws" {
 }
 
 # S3 bucket for photo/video backup
-resource "aws_s3_bucket" "backup_bucket" {
+resource "aws_s3_bucket" "photo_video_backup_bucket" {
   bucket = "dflaten-photo-video-backup"
 
   tags = {
-    Name        = "Photo and Video Backup"
-    Environment = "Production"
+    Name = "photo-video-backup"
   }
 }
 
-# S3 bucket server-side encryption configuration
-resource "aws_s3_bucket_server_side_encryption_configuration" "backup_bucket_encryption" {
-  bucket = aws_s3_bucket.backup_bucket.id
+resource "aws_s3_bucket_server_side_encryption_configuration" "photo_video_backup_bucket_encryption" {
+  bucket = aws_s3_bucket.photo_video_backup_bucket.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -23,29 +21,75 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backup_bucket_enc
   }
 }
 
-# S3 bucket versioning
-resource "aws_s3_bucket_versioning" "backup_bucket_versioning" {
-  bucket = aws_s3_bucket.backup_bucket.id
-  versioning_configuration {
-    status = "Enabled"
-  }
+resource "aws_s3_bucket_policy" "photo_video_backup_bucket_policy" {
+  bucket = aws_s3_bucket.photo_video_backup_bucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowSpecificAccount"
+        Effect = "Allow"
+        Principal = {
+          AWS = ["arn:aws:iam::${var.my_account_id}:user/DevAdminAccess",
+          aws_iam_user.photo_video_server_user.arn]
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          aws_s3_bucket.photo_video_backup_bucket.arn,
+          "${aws_s3_bucket.photo_video_backup_bucket.arn}/*"
+        ]
+      },
+      {
+        Sid       = "DenyAllOthers"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.photo_video_backup_bucket.arn,
+          "${aws_s3_bucket.photo_video_backup_bucket.arn}/*"
+        ]
+        Condition = {
+          StringNotEquals = {
+            "aws:PrincipalAccount" : "${var.my_account_id}"
+          }
+        }
+      }
+    ]
+  })
 }
 
-# CloudWatch metric
-resource "aws_cloudwatch_metric_alarm" "backup_success_alarm" {
-  alarm_name          = "BackupSuccessAlarm"
-  comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "BackupSuccess"
-  namespace           = "MediaBackup"
-  period              = 86400 # 24 hours in seconds
-  statistic           = "Sum"
-  threshold           = 1
-  alarm_description   = "Alarm when backup success count is less than 1 per day"
+# Create IAM user for your Linux machine
+resource "aws_iam_user" "photo_video_server_user" {
+  name = "dflaten-photo-video-server"
+}
 
-  dimensions = {
-    BucketName = aws_s3_bucket.backup_bucket.id
-  }
+# Create policy for S3 bucket access
+resource "aws_iam_policy" "s3_access_policy" {
+  name        = "s3-photo-video-backup-bucket-access-policy"
+  description = "Policy to allow access to S3 bucket for storing backup of video and photos."
 
-  insufficient_data_actions = []
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:DeleteObject"
+        ],
+        Resource = [
+          aws_s3_bucket.photo_video_backup_bucket.arn,
+          "${aws_s3_bucket.photo_video_backup_bucket.arn}/*"
+        ]
+      }
+    ]
+  })
 }
