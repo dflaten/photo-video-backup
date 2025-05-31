@@ -6,7 +6,7 @@ backing up a copy to the cloud for long term storage.
 Currently I have ~21,000 photos and 1,900 videos to store and I've decided to use S3 to back them up as the costs aren't too bad.
 
 ## Backup Process
-I will use [restic](https://restic.readthedocs.io/en/stable/index.html) to backup my photos/videos and the database from immich to S3.
+I will use [rclone](https://rclone.org/) with the bash script in this repo to backup my photos/videos and the database from immich to S3.
 
 You may find the aws cli useful for verification on your immich machine, you can install with snap by using:
 `snap install aws-cli --classic`

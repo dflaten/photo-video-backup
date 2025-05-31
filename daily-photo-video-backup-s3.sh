@@ -1,12 +1,10 @@
 #!/bin/bash
 
-# Set variables
-SOURCE_DIR="/path/to/your/photos/and/videos"
-RCLONE_REMOTE="your-s3-remote"
-BUCKET_PATH="your-bucket/backup"
-LOG_FILE="/var/log/media_backup.log"
-AWS_REGION="your-aws-region"  # e.g., us-east-1
+# Set variables from config.txt
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/config.txt"
 
+source "$CONFIG_FILE"
 # Ensure log directory exists
 mkdir -p "$(dirname "$LOG_FILE")"
 
