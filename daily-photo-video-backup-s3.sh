@@ -6,9 +6,12 @@ CONFIG_FILE="$SCRIPT_DIR/config.txt"
 
 source "$CONFIG_FILE"
 # Ensure log directory exists
-mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$(dirname "$LOG_DIR")"
 
 # Start logging
+TIMESTAMP=$(date +%s)
+LOG_FILE="${LOG_DIRECTORY}/${TIMESTAMP}.log"
+
 echo "Starting backup at $(date)" >> "$LOG_FILE"
 
 # Run rclone sync with specific settings

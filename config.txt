@@ -2,5 +2,5 @@
 SOURCE_DIR="/path/to/your/photos/and/videos"
 RCLONE_REMOTE="your-s3-remote"
 BUCKET_PATH="your-bucket/backup"
-LOG_FILE="/var/log/media_backup.log"
+LOG_DIRECTORY="/var/log/"
 AWS_REGION="your-aws-region"  # e.g. us-west-2, 
