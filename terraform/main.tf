@@ -93,3 +93,30 @@ resource "aws_iam_policy" "s3_access_policy" {
     ]
   })
 }
+
+# Create alarm for backup metric
+# We want to be alarmed if the metric reports a failure (0) at anypoint.
+# We are only evaluating the metric every hour because backups will be done
+# at most once a day.
+resource "aws_cloudwatch_metric_alarm" "media_backup_failure_alarm" {
+  alarm_name                = "Media backup failure detected."
+  comparison_operator       = "LessThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "BackupSuccess"
+  namespace                 = "AWS/EC2"
+  period                    = 3600
+  statistic                 = "Maximum"
+  threshold                 = 1
+  alarm_description         = "This metric is reported when the media backup script is executed."
+  alarm_actions             = [aws_sns_topic.backup_alerts.arn]
+  insufficient_data_actions = []
+}
+resource "aws_sns_topic" "backup_alerts" {
+  name = "backup-failure-alerts"
+}
+
+resource "aws_sns_topic_subscription" "sms_alert" {
+  topic_arn = aws_sns_topic.backup_alerts.arn
+  protocol  = "sms"
+  endpoint  = "+1234567890" # Replace with your phone number in E.164 format
+}
