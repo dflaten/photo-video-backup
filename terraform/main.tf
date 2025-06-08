@@ -70,14 +70,15 @@ resource "aws_iam_user" "photo_video_server_user" {
 }
 
 # Create policy for S3 bucket access
-resource "aws_iam_policy" "s3_access_policy" {
-  name        = "s3-photo-video-backup-bucket-access-policy"
+resource "aws_iam_policy" "s3_access_cloudwatch_policy" {
+  name        = "s3-photo-video-backup-bucket-access-and-alarm-policy"
   description = "Policy to allow access to S3 bucket for storing backup of video and photos."
 
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
       {
+        Sid    = "AccessS3BucketForBackup",
         Effect = "Allow",
         Action = [
           "s3:GetObject",
@@ -89,11 +90,23 @@ resource "aws_iam_policy" "s3_access_policy" {
           aws_s3_bucket.photo_video_backup_bucket.arn,
           "${aws_s3_bucket.photo_video_backup_bucket.arn}/*"
         ]
+      },
+      {
+        Sid    = "AccessToPublishCloudwatchMetric",
+        Effect = "Allow",
+        Action = [
+          "cloudwatch:PutMetricData"
+        ],
+        Resource = "*"
       }
     ]
   })
 }
 
+resource "aws_iam_user_policy_attachment" "backup_user_policy_attachement" {
+  user       = aws_iam_user.photo_video_server_user.name
+  policy_arn = aws_iam_policy.s3_access_cloudwatch_policy.arn
+}
 # Create alarm for backup metric
 # We want to be alarmed if the metric reports a failure (0) at anypoint.
 # We are only evaluating the metric every hour because backups will be done
