@@ -15,8 +15,8 @@ LOG_FILE="${LOG_DIRECTORY}/${TIMESTAMP}.log"
 echo "Starting backup at $(date)" >> "$LOG_FILE"
 
 # Run rclone sync with specific settings
+#TODO: TEST WITH --dry-run (https://rclone.org/docs/)
 if rclone sync "$SOURCE_DIR" "$RCLONE_REMOTE:$BUCKET_PATH" \
-    --include "*.{jpg,jpeg,png,gif,mp4,mov,avi,mkv,raw,cr2,arw,heic,heif}" \
     --ignore-existing \
     --s3-storage-class=DEEP_ARCHIVE \
     --log-file="$LOG_FILE" \
