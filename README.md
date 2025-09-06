@@ -11,6 +11,20 @@ I will use [rclone](https://rclone.org/) with the bash script in this repo to ba
 You may find the aws cli useful for verification on your immich machine, you can install with snap by using:
 `snap install aws-cli --classic`
 
+Before you run the `daily-photo-video-backup.sh` script you will need to configure rclone. 
+
+`rclone config`
+
+During configuration, you'll need to provide:
+
+    Storage provider: Choose "Amazon S3 Compliant Storage Providers"
+    AWS Access Key ID: Your AWS access key
+    AWS Secret Access Key: Your AWS secret key
+    Region: Your S3 bucket's region (e.g., us-east-1, eu-west-1)
+    Remote name: This becomes your RCLONE_REMOTE value
+
+Then update `config.txt` with your values. 
+
 ## Terraform Included
 The terraform included here includes the AWS infra needed as a part of the backup process to S3 including:
 
