@@ -21,8 +21,7 @@ if rclone sync "$SOURCE_DIR" "$RCLONE_REMOTE:$BUCKET_PATH" \
     --s3-storage-class=DEEP_ARCHIVE \
     --log-file="$LOG_FILE" \
     --log-level INFO \
-    --stats 30s \
-    --stats-one-line; then
+    --stats 30s ; then
 
     # Emit success metric to CloudWatch
     aws cloudwatch put-metric-data \
