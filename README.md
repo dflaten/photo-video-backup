@@ -11,6 +11,10 @@ I will use [rclone](https://rclone.org/) with the bash script in this repo to ba
 You may find the aws cli useful for verification on your immich machine, you can install with snap by using:
 `snap install aws-cli --classic`
 
+You will need to create credentials for your machine to run the backup to S3 with this command:
+
+`aws iam create-access-key --user-name [YOUR-IDENTIFIER]-photo-video-server`
+
 Before you run the `daily-photo-video-backup.sh` script you will need to configure rclone. 
 
 `rclone config`
