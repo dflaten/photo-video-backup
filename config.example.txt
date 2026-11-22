@@ -1,0 +1,14 @@
+# Copy this file to config.txt and replace the values with your own.
+# config.txt is ignored by git so local paths and bucket names stay uncommitted.
+
+# Absolute path to the photos/videos directory to back up.
+SOURCE_DIR="/path/to/your/photos/and/videos"
+
+# rclone destination. The remote name ("s3" here) must match the remote you
+# created with `rclone config`.
+BUCKET_PATH="s3:your-bucket/backup"
+
+# Relative paths are resolved against the directory containing the script.
+LOG_DIRECTORY="./log"
+
+AWS_REGION="us-east-1"  # e.g. us-west-2
