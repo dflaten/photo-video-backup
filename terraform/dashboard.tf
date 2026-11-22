@@ -126,7 +126,7 @@ resource "aws_cloudwatch_dashboard" "media_backup" {
         x      = 0
         y      = 15
         width  = 24
-        height = 4
+        height = 6
         properties = {
           markdown = <<-EOT
             # Media backup
