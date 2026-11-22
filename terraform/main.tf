@@ -29,6 +29,40 @@ resource "aws_s3_bucket_public_access_block" "photo_video_backup_bucket_public_a
   restrict_public_buckets = true
 }
 
+# Failed/aborted multipart uploads leave billable parts behind. The script can
+# abort them, but a crashed host cannot, so expire leftovers automatically.
+# Database dumps are small and need to be restorable quickly, so they expire
+# after a fixed retention instead of being kept forever in Deep Archive.
+resource "aws_s3_bucket_lifecycle_configuration" "photo_video_backup_bucket_lifecycle" {
+  bucket = aws_s3_bucket.photo_video_backup_bucket.id
+
+  rule {
+    id     = "abort-incomplete-multipart-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  rule {
+    id     = "expire-database-dumps"
+    status = "Enabled"
+
+    filter {
+      prefix = var.db_backup_key_prefix
+    }
+
+    expiration {
+      days = var.db_backup_retention_days
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "photo_video_backup_bucket_policy" {
   bucket = aws_s3_bucket.photo_video_backup_bucket.id
   policy = jsonencode({
@@ -73,18 +107,26 @@ resource "aws_iam_policy" "s3_user_access_policy" {
     Version = "2012-10-17",
     Statement = [
       {
-        Sid    = "AccessS3BucketForBackup",
+        Sid    = "ListBackupBucket",
+        Effect = "Allow",
+        Action = [
+          "s3:ListBucket",
+          "s3:ListBucketMultipartUploads",
+          "s3:GetBucketLocation"
+        ],
+        Resource = [aws_s3_bucket.photo_video_backup_bucket.arn]
+      },
+      {
+        Sid    = "AccessObjectsInBackupBucket",
         Effect = "Allow",
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:ListBucket",
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts"
         ],
-        Resource = [
-          aws_s3_bucket.photo_video_backup_bucket.arn,
-          "${aws_s3_bucket.photo_video_backup_bucket.arn}/*"
-        ]
+        Resource = ["${aws_s3_bucket.photo_video_backup_bucket.arn}/*"]
       },
       {
         Sid    = "AccessToPublishCloudwatchMetric",
@@ -93,17 +135,6 @@ resource "aws_iam_policy" "s3_user_access_policy" {
           "cloudwatch:PutMetricData"
         ],
         Resource = "*"
-      },
-      {
-        Sid    = "CreateKeyForBackupAccess",
-        Effect = "Allow",
-        Action = [
-          "iam:CreateAccessKey",
-          "iam:DeleteAccessKey",
-          "iam:ListAccessKeys",
-          "iam:UpdateAccessKey"
-        ],
-        Resource = [aws_iam_user.photo_video_server_user.arn]
       },
     ]
   })
@@ -115,22 +146,26 @@ resource "aws_iam_user_policy_attachment" "backup_user_policy_attachement" {
 }
 # Create alarm for backup metric
 # The script publishes 1 on success and 0 on failure, at most once a week.
-# Minimum over the 7-day window catches any failure in the window, and
-# treat_missing_data = "breaching" catches a run that never happened at all.
+#
+# A 7-day period would line up with the schedule only by coincidence: one
+# missed run shifts the phase, leaves a period with no datapoints, and causes
+# alternating false alarms. Instead, evaluate one day at a time and require
+# eight consecutive breaching days. The 7 quiet days between weekly runs stay
+# below the threshold; a failed run (0) or an eighth day with no data trips it.
 resource "aws_cloudwatch_metric_alarm" "media_backup_failure_alarm" {
-  alarm_name                = "Media backup failure detected."
-  comparison_operator       = "LessThanThreshold"
-  evaluation_periods        = 1
-  metric_name               = "BackupSuccess"
-  namespace                 = "MediaBackup" # Must match --namespace in daily-photo-video-backup-s3.sh
-  period                    = 604800        # 7 days in seconds (60 * 60 * 24 * 7)
-  statistic                 = "Minimum"
-  threshold                 = 1
-  unit                      = "Count"
-  treat_missing_data        = "breaching" # Triggers alarm when no data is received
-  alarm_description         = "This alarm triggers if any backup reports failure (0) or if no success metric is published within 7 days."
-  alarm_actions             = [aws_sns_topic.backup_alerts.arn]
-  insufficient_data_actions = [] # No actions for insufficient data since we're treating missing data as breaching
+  alarm_name          = "Media backup failure detected."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 8
+  datapoints_to_alarm = 8
+  metric_name         = "BackupSuccess"
+  namespace           = "MediaBackup" # Must match --namespace in daily-photo-video-backup-s3.sh
+  period              = 86400         # 1 day
+  statistic           = "Minimum"
+  threshold           = 1
+  unit                = "Count"
+  treat_missing_data  = "breaching" # A missing run is a failure
+  alarm_description   = "This alarm triggers if a backup reports failure (0) or if no success metric is published for 8 days."
+  alarm_actions       = [aws_sns_topic.backup_alerts.arn]
 }
 
 resource "aws_sns_topic" "backup_alerts" {
