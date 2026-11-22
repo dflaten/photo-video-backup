@@ -1,14 +1,43 @@
 # Copy this file to config.txt and replace the values with your own.
 # config.txt is ignored by git so local paths and bucket names stay uncommitted.
 
-# Absolute path to the photos/videos directory to back up.
+# Absolute path to the photos/videos directory to back up. For the default
+# Immich docker-compose setup this is UPLOAD_LOCATION (the directory containing
+# immich_files/, thumbs/, encoded-video/ and backups/).
 SOURCE_DIR="/path/to/your/photos/and/videos"
 
-# rclone destination. The remote name ("s3" here) must match the remote you
-# created with `rclone config`.
-BUCKET_PATH="s3:your-bucket/backup"
+# rclone destination for media. The remote name ("s3" here) must match the
+# remote you created with `rclone config`. If you use a sub-path such as
+# s3:your-bucket/backup, also set db_backup_key_prefix in terraform.tfvars to
+# "backup/backups/db/" so the lifecycle rule matches.
+BUCKET_PATH="s3:your-bucket"
 
 # Relative paths are resolved against the directory containing the script.
 LOG_DIRECTORY="./log"
 
 AWS_REGION="us-east-1"  # e.g. us-west-2
+
+# Refuse to run when SOURCE_DIR contains fewer files than this. Set it well
+# below your normal file count (e.g. 20000 for a ~25,000 file library). This
+# catches an unmounted drive or an empty/half-restored library.
+MIN_SOURCE_FILES=1000
+
+# Set to "true" only if SOURCE_DIR itself is a mountpoint that must be mounted
+# (e.g. a dedicated drive mounted at /mnt/photos).
+REQUIRE_MOUNT="false"
+
+# Immich database dumps (the .sql.gz files written by Immich's automatic
+# database backup). They are copied to Standard storage -- not Deep Archive --
+# so they can be restored in minutes. Set DB_BACKUP_DIR="" to disable.
+DB_BACKUP_DIR="$SOURCE_DIR/backups"
+DB_BACKUP_PREFIX="backups/db"
+DB_BACKUP_GLOB="*.sql.gz"
+# Only upload dumps newer than this, so old dumps are not re-uploaded after
+# the S3 lifecycle rule expires them.
+DB_BACKUP_MAX_AGE="90d"
+# Skip dumps modified more recently than this, so a dump that is still being
+# written is not uploaded half-finished.
+DB_BACKUP_MIN_AGE="5m"
+
+# Delete log files older than this many days.
+LOG_RETENTION_DAYS=90

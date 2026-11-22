@@ -1,10 +1,50 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Backup Immich media and database dumps to S3.
+#
+# Media is COPIED, never deleted: removing a photo from Immich, or a drive that
+# fails to mount, cannot delete anything from the archive. Pruning is a manual
+# operation (see README).
+#
+# Database dumps go to a separate prefix in Standard storage (not Deep Archive)
+# so they can be restored in minutes instead of hours.
 
-# Set variables from config.txt
+set -uo pipefail
+
+# cron runs with a minimal PATH; add the usual install locations as fallbacks.
+export PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:${HOME}/.local/bin"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.txt"
 
-source "$CONFIG_FILE"
+if [[ ! -r "$CONFIG_FILE" ]]; then
+    echo "ERROR: config file $CONFIG_FILE is missing or unreadable." >&2
+    echo "Copy config.example.txt to config.txt and edit it." >&2
+    exit 1
+fi
+
+# shellcheck source=/dev/null
+if ! source "$CONFIG_FILE"; then
+    echo "ERROR: failed to load $CONFIG_FILE" >&2
+    exit 1
+fi
+
+: "${SOURCE_DIR:?SOURCE_DIR must be set in config.txt}"
+: "${BUCKET_PATH:?BUCKET_PATH must be set in config.txt}"
+: "${AWS_REGION:?AWS_REGION must be set in config.txt}"
+
+# Optional settings and defaults.
+BUCKET_PATH="${BUCKET_PATH%/}"
+LOG_DIRECTORY="${LOG_DIRECTORY:-./log}"
+MIN_SOURCE_FILES="${MIN_SOURCE_FILES:-100}"
+REQUIRE_MOUNT="${REQUIRE_MOUNT:-false}"
+LOG_RETENTION_DAYS="${LOG_RETENTION_DAYS:-90}"
+# Empty DB_BACKUP_DIR (not unset) disables database backups.
+DB_BACKUP_DIR="${DB_BACKUP_DIR-$SOURCE_DIR/backups}"
+DB_BACKUP_PREFIX="${DB_BACKUP_PREFIX:-backups/db}"
+DB_BACKUP_GLOB="${DB_BACKUP_GLOB:-*.sql.gz}"
+DB_BACKUP_MAX_AGE="${DB_BACKUP_MAX_AGE:-90d}"
+DB_BACKUP_MIN_AGE="${DB_BACKUP_MIN_AGE:-5m}"
 
 # Resolve relative paths against the script directory so manual runs and cron
 # (which starts in $HOME) write to the same log directory.
@@ -12,64 +52,128 @@ if [[ "$LOG_DIRECTORY" != /* ]]; then
     LOG_DIRECTORY="$SCRIPT_DIR/$LOG_DIRECTORY"
 fi
 
-# Ensure log directory exists
-mkdir -p "$LOG_DIRECTORY"
+if ! mkdir -p "$LOG_DIRECTORY"; then
+    echo "ERROR: cannot create log directory $LOG_DIRECTORY" >&2
+    exit 1
+fi
 
-# Start logging
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 LOG_FILE="${LOG_DIRECTORY}/${TIMESTAMP}.log"
 
-echo "Starting backup at $(date)" >> "$LOG_FILE"
+# Only allow one run at a time. The initial upload of a large library can take
+# longer than the gap between scheduled runs.
+exec 9>"$LOG_DIRECTORY/.backup.lock"
+if ! flock -n 9; then
+    echo "Another backup run is already in progress; exiting." >&2
+    exit 0
+fi
+
+log() {
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
+}
 
 emit_metric() {
-    aws cloudwatch put-metric-data \
+    if ! aws cloudwatch put-metric-data \
         --region "$AWS_REGION" \
         --namespace "MediaBackup" \
         --metric-name "BackupSuccess" \
         --value "$1" \
-        --unit Count
+        --unit Count; then
+        log "WARNING: failed to publish CloudWatch metric ($1)."
+    fi
 }
 
 fail() {
-    echo "$1" >> "$LOG_FILE"
+    log "ERROR: $1"
     emit_metric 0
     exit 1
 }
 
-# Refuse to run if the source is missing or empty. Without this, a drive that
-# failed to mount would make rclone sync delete the entire remote backup
-# (and Deep Archive deletes before 180 days are also billed).
-if [ ! -d "$SOURCE_DIR" ] || [ -z "$(find "$SOURCE_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
-    fail "Source directory $SOURCE_DIR is missing or empty; refusing to sync."
+log "Starting backup."
+find "$LOG_DIRECTORY" -maxdepth 1 -type f -name '*.log' -mtime +"$LOG_RETENTION_DAYS" -delete 2>/dev/null
+
+# Refuse to run if the source is missing, not mounted, or suspiciously small.
+# With `rclone copy` nothing would be deleted, but a broken source still means
+# a green run that backed up nothing.
+if [[ ! -d "$SOURCE_DIR" ]]; then
+    fail "Source directory $SOURCE_DIR does not exist."
 fi
+
+if [[ "$REQUIRE_MOUNT" == "true" ]] && ! mountpoint -q "$SOURCE_DIR"; then
+    fail "Source directory $SOURCE_DIR is not a mountpoint; refusing to run."
+fi
+
+SOURCE_FILE_COUNT=$(find "$SOURCE_DIR" -type f -printf '.' 2>/dev/null | wc -c)
+if (( SOURCE_FILE_COUNT < MIN_SOURCE_FILES )); then
+    fail "Only $SOURCE_FILE_COUNT files under $SOURCE_DIR (minimum $MIN_SOURCE_FILES); refusing to run."
+fi
+log "Source contains $SOURCE_FILE_COUNT files."
 
 # Only draw progress when attached to a terminal; otherwise it fills the log
 # with repaint escape sequences.
 PROGRESS_ARGS=()
-if [ -t 1 ]; then
+if [[ -t 1 ]]; then
     PROGRESS_ARGS+=(--progress)
 fi
 
-# Run rclone sync with specific settings
-# TEST WITH --dry-run (https://rclone.org/docs/)
-if rclone sync "$SOURCE_DIR" "$BUCKET_PATH" \
-    --ignore-existing \
+MEDIA_RESULT=0
+log "Copying media to $BUCKET_PATH (Deep Archive)."
+# --size-only compares sizes instead of modification times. rclone normally
+# compares the mtime metadata it stores in S3; size-only still repairs
+# different-size objects without re-uploading the library if metadata is lost.
+if rclone copy "$SOURCE_DIR" "$BUCKET_PATH" \
+    --size-only \
+    --exclude "/thumbs/**" \
     --exclude "**/thumbs/**" \
-    --max-delete 100 \
+    --exclude "/backups/**" \
     --s3-storage-class=DEEP_ARCHIVE \
     --log-file="$LOG_FILE" \
     --log-level INFO \
     --stats 30s \
     "${PROGRESS_ARGS[@]}"; then
-
-    # Emit success metric to CloudWatch
-    emit_metric 1
-
-    echo "Backup completed successfully at $(date)" >> "$LOG_FILE"
+    log "Media copy finished."
 else
-    # Emit failure metric to CloudWatch
-    emit_metric 0
-
-    echo "Backup failed at $(date)" >> "$LOG_FILE"
-    exit 1
+    rc=$?
+    MEDIA_RESULT=1
+    log "ERROR: media copy failed (rclone exit $rc)."
 fi
+
+DB_RESULT=0
+if [[ -z "$DB_BACKUP_DIR" ]]; then
+    log "Database backup disabled (DB_BACKUP_DIR is empty)."
+elif [[ ! -d "$DB_BACKUP_DIR" ]]; then
+    DB_RESULT=1
+    log "ERROR: database backup directory $DB_BACKUP_DIR does not exist."
+elif ! compgen -G "$DB_BACKUP_DIR/$DB_BACKUP_GLOB" >/dev/null; then
+    DB_RESULT=1
+    log "ERROR: no $DB_BACKUP_GLOB dumps found in $DB_BACKUP_DIR."
+else
+    log "Copying database dumps to $BUCKET_PATH/$DB_BACKUP_PREFIX (Standard)."
+    # Standard storage class so a restore does not need a 12-48h thaw, and
+    # --max-age so old dumps are not re-uploaded after lifecycle expiry.
+    if rclone copy "$DB_BACKUP_DIR" "$BUCKET_PATH/$DB_BACKUP_PREFIX" \
+        --size-only \
+        --max-age "$DB_BACKUP_MAX_AGE" \
+        --min-age "$DB_BACKUP_MIN_AGE" \
+        --s3-storage-class=STANDARD \
+        --log-file="$LOG_FILE" \
+        --log-level INFO \
+        --stats 30s \
+        "${PROGRESS_ARGS[@]}"; then
+        log "Database copy finished."
+    else
+        rc=$?
+        DB_RESULT=1
+        log "ERROR: database copy failed (rclone exit $rc)."
+    fi
+fi
+
+if (( MEDIA_RESULT == 0 && DB_RESULT == 0 )); then
+    emit_metric 1
+    log "Backup completed successfully."
+    exit 0
+fi
+
+emit_metric 0
+log "Backup failed (media=$MEDIA_RESULT db=$DB_RESULT)."
+exit 1
