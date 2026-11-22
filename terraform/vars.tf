@@ -25,3 +25,15 @@ variable "enable_dashboard" {
   type        = bool
   default     = true
 }
+
+variable "db_backup_retention_days" {
+  description = "Days to keep Immich database dumps before S3 lifecycle expiration."
+  type        = number
+  default     = 90
+}
+
+variable "db_backup_key_prefix" {
+  description = "S3 key prefix for database dumps. Must match BUCKET_PATH + DB_BACKUP_PREFIX from config.txt, e.g. \"backup/backups/db/\" when BUCKET_PATH is s3:my-bucket/backup."
+  type        = string
+  default     = "backups/db/"
+}
