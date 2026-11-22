@@ -8,9 +8,9 @@ It has been tested with ~21,000 photos and 1,900 videos.
 ## Backup Process
 [rclone](https://rclone.org/) is used coordinated with a bash script in this repo to perform the backup of photos/videos and the Immich database to S3.
 
-The media backup uses `rclone copy`, not `rclone sync`: files are added to the archive and **never deleted automatically**. Removing a photo from Immich, or a drive that fails to mount, cannot remove anything from S3. Pruning the archive is a deliberate manual step (see [Pruning](#pruning-the-archive)).
+The media backup uses `rclone copy`, not `rclone sync`: files are added to the archive and **never deleted automatically**. Removing a photo from Immich, or a drive that fails to mount, cannot remove anything from S3. Pruning the archive is a deliberate manual step (see [Pruning](#pruning-the-archive)). Files are compared by size (`--size-only`); an in-place edit that keeps the same byte size will not be re-uploaded, which is a deliberate trade-off for immutable Immich assets.
 
-Immich database dumps (`*.sql.gz`) are copied to a separate `backups/db/` prefix in **Standard** storage, not Deep Archive, so restoring a recent dump takes minutes instead of hours. They expire after 90 days via an S3 lifecycle rule.
+Immich database dumps (`*.sql.gz`) are copied to a separate `backups/db/` prefix in **Standard** storage, not Deep Archive, so restoring a recent dump takes minutes instead of hours. They expire after 90 days via an S3 lifecycle rule. The run fails if the newest dump is more than 8 days old, so an Immich database backup that silently stops is caught instead of copying nothing.
 
 The aws cli is useful for verification on the machine running immich, you can install with snap by using:
 `snap install aws-cli --classic`
@@ -53,6 +53,7 @@ Other settings in `config.example.txt`:
 | `DB_BACKUP_PREFIX` | S3 prefix for dumps (default `backups/db`). Must stay Standard storage, not Deep Archive. If `BUCKET_PATH` includes a sub-path, set `db_backup_key_prefix` in `terraform.tfvars` to match (e.g. `backup/backups/db/`). |
 | `DB_BACKUP_MAX_AGE` | Only upload dumps newer than this (default `90d`), so expired dumps are not re-uploaded. |
 | `DB_BACKUP_MIN_AGE` | Skip dumps modified more recently than this (default `5m`), so a dump still being written is not uploaded half-finished. |
+| `DB_BACKUP_FRESH_DAYS` | Fail the run when the newest dump is older than this (default 8 days), so an Immich backup that silently stopped is caught. |
 | `LOG_RETENTION_DAYS` | How long to keep local log files (default 90 days). |
 
 The script is safe to run from cron and by hand at the same time: a `flock` lock makes a second run exit immediately, and `PATH` is set internally so `rclone`, `aws` and `flock` are found even with cron's minimal environment.
@@ -170,10 +171,12 @@ Media is in Deep Archive and must be thawed before it can be downloaded. A bulk 
 aws s3api restore-object \
   --bucket YOUR_BUCKET \
   --key "immich_files/..." \
-  --restore-request '{"GlacierJobParameters":{"Tier":"Bulk"}}'
+  --restore-request '{"Days":7,"GlacierJobParameters":{"Tier":"Bulk"}}'
 ```
 
-Bulk restores can take up to 48 hours. Then copy the objects back with `rclone copy` from a `s3:` remote whose storage class allows reads, or use `aws s3 cp --recursive` for a prefix.
+Bulk restores can take up to 48 hours. `Days` is how long the restored copy stays downloadable after the thaw finishes. For many objects, loop over the keys (or use S3 Batch Operations); restoring one object at a time by hand does not scale to a library.
+
+Then copy the objects back with `rclone copy` from a `s3:` remote whose storage class allows reads, or use `aws s3 cp --recursive` for a prefix.
 
 Database dumps are in Standard storage, so they can be downloaded immediately:
 

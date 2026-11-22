@@ -45,6 +45,7 @@ DB_BACKUP_PREFIX="${DB_BACKUP_PREFIX:-backups/db}"
 DB_BACKUP_GLOB="${DB_BACKUP_GLOB:-*.sql.gz}"
 DB_BACKUP_MAX_AGE="${DB_BACKUP_MAX_AGE:-90d}"
 DB_BACKUP_MIN_AGE="${DB_BACKUP_MIN_AGE:-5m}"
+DB_BACKUP_FRESH_DAYS="${DB_BACKUP_FRESH_DAYS:-8}"
 
 # Resolve relative paths against the script directory so manual runs and cron
 # (which starts in $HOME) write to the same log directory.
@@ -103,11 +104,15 @@ if [[ "$REQUIRE_MOUNT" == "true" ]] && ! mountpoint -q "$SOURCE_DIR"; then
     fail "Source directory $SOURCE_DIR is not a mountpoint; refusing to run."
 fi
 
-SOURCE_FILE_COUNT=$(find "$SOURCE_DIR" -type f -printf '.' 2>/dev/null | wc -c)
+# Count only files that will actually be copied: a stale thumbs/ or backups/
+# directory must not make a broken media source look healthy.
+SOURCE_FILE_COUNT=$(find "$SOURCE_DIR" \
+    -type d \( -name thumbs -o -name backups \) -prune -o \
+    -type f -printf '.' 2>/dev/null | wc -c)
 if (( SOURCE_FILE_COUNT < MIN_SOURCE_FILES )); then
-    fail "Only $SOURCE_FILE_COUNT files under $SOURCE_DIR (minimum $MIN_SOURCE_FILES); refusing to run."
+    fail "Only $SOURCE_FILE_COUNT media files under $SOURCE_DIR (minimum $MIN_SOURCE_FILES); refusing to run."
 fi
-log "Source contains $SOURCE_FILE_COUNT files."
+log "Source contains $SOURCE_FILE_COUNT media files."
 
 # Only draw progress when attached to a terminal; otherwise it fills the log
 # with repaint escape sequences.
@@ -147,11 +152,19 @@ elif [[ ! -d "$DB_BACKUP_DIR" ]]; then
 elif ! compgen -G "$DB_BACKUP_DIR/$DB_BACKUP_GLOB" >/dev/null; then
     DB_RESULT=1
     log "ERROR: no $DB_BACKUP_GLOB dumps found in $DB_BACKUP_DIR."
+elif [[ -z "$(find "$DB_BACKUP_DIR" -maxdepth 1 -type f -name "$DB_BACKUP_GLOB" \
+        -mtime -"$DB_BACKUP_FRESH_DAYS" -print -quit 2>/dev/null)" ]]; then
+    # Immich can silently stop writing dumps (or the path can change). Old
+    # dumps would make the copy succeed without backing up anything current.
+    DB_RESULT=1
+    log "ERROR: no $DB_BACKUP_GLOB dump modified in the last $DB_BACKUP_FRESH_DAYS days in $DB_BACKUP_DIR."
 else
     log "Copying database dumps to $BUCKET_PATH/$DB_BACKUP_PREFIX (Standard)."
-    # Standard storage class so a restore does not need a 12-48h thaw, and
-    # --max-age so old dumps are not re-uploaded after lifecycle expiry.
+    # Standard storage class so a restore does not need a 12-48h thaw,
+    # --max-age so old dumps are not re-uploaded after lifecycle expiry, and
+    # --min-age so a dump still being written is not uploaded half-finished.
     if rclone copy "$DB_BACKUP_DIR" "$BUCKET_PATH/$DB_BACKUP_PREFIX" \
+        --include "$DB_BACKUP_GLOB" \
         --size-only \
         --max-age "$DB_BACKUP_MAX_AGE" \
         --min-age "$DB_BACKUP_MIN_AGE" \

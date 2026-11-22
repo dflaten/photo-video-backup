@@ -33,11 +33,14 @@ DB_BACKUP_DIR="$SOURCE_DIR/backups"
 DB_BACKUP_PREFIX="backups/db"
 DB_BACKUP_GLOB="*.sql.gz"
 # Only upload dumps newer than this, so old dumps are not re-uploaded after
-# the S3 lifecycle rule expires them.
+# the S3 lifecycle rule expires them. Keep this larger than DB_BACKUP_FRESH_DAYS.
 DB_BACKUP_MAX_AGE="90d"
 # Skip dumps modified more recently than this, so a dump that is still being
 # written is not uploaded half-finished.
 DB_BACKUP_MIN_AGE="5m"
+# Fail the run when the newest dump is older than this many days, so an Immich
+# backup that silently stops is caught instead of copying nothing.
+DB_BACKUP_FRESH_DAYS=8
 
 # Delete log files older than this many days.
 LOG_RETENTION_DAYS=90
