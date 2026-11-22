@@ -148,19 +148,22 @@ The setup is designed to stay cheap:
 Deep Archive has a **180-day minimum storage duration**. Deleting an object earlier is still billed for the remainder of the 180 days. Because media is copied with `rclone copy`, normal runs never delete anything; the minimum duration only matters when you prune manually or overwrite a changed file. Database dumps live in Standard storage, where there is no minimum duration, and expire after `db_backup_retention_days` (default 90).
 
 ## Pruning the Archive
-Deleted photos stay in the archive on purpose. To find objects that no longer exist locally:
+Deleted photos stay in the archive on purpose. To find objects that no longer exist locally, run the check with the same exclusions as the backup. Excluding `/backups/**` is essential: database dumps are stored under `backups/db/`, not at the matching local path, so an unfiltered check would list every dump as "missing from source" and the delete step would wipe them.
 
 ```bash
 rclone check "$SOURCE_DIR" "$BUCKET_PATH" --size-only \
+  --exclude "/thumbs/**" --exclude "**/thumbs/**" --exclude "/backups/**" \
   --missing-on-src /tmp/only-in-s3.txt
 ```
 
-Review that list, then delete exactly those objects:
+Review that list, then delete exactly those objects (`--files-from-raw` overrides other filters, so it must be used alone):
 
 ```bash
 rclone delete "$BUCKET_PATH" --files-from-raw /tmp/only-in-s3.txt --dry-run
 rclone delete "$BUCKET_PATH" --files-from-raw /tmp/only-in-s3.txt
 ```
+
+Paths in the list are relative to `$BUCKET_PATH`, which is why both commands use the same destination.
 
 Remember the 180-day Deep Archive minimum: pruning recently uploaded objects still bills for the full 180 days.
 
