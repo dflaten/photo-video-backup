@@ -77,7 +77,7 @@ Add an entry like this to run the backup every Sunday at 2:00 AM:
 0 2 * * 0 /home/david/projects/photo-video-backup/daily-photo-video-backup-s3.sh
 ```
 
-The filename still says "daily" for historical reasons; the schedule above is weekly. Keep it weekly (or run it more often) — the alarm expects a run at least every 8 days.
+The filename still says "daily" for historical reasons; the schedule above is weekly. Keep it weekly (or run it more often) — the alarm expects a run at least every 7 days.
 
 If a tool lives somewhere unusual, use its full path or define `PATH` at the top of the crontab; the script already adds the common install locations (`/usr/local/bin`, `/snap/bin`, `~/.local/bin`, and the system paths).
 
@@ -90,9 +90,9 @@ crontab -l
 It is also worth running the script manually once before relying on cron so any `rclone`, AWS, or config issues can be fixed interactively.
 
 ## Alerting
-The script publishes a `BackupSuccess` metric to the `MediaBackup` CloudWatch namespace: `1` on success and `0` on failure. The alarm in `terraform/` evaluates one day at a time and goes to `ALARM` when **8 consecutive days** are breaching, where a day is breaching if it reported `0` or had no data (`treat_missing_data = "breaching"`).
+The script publishes a `BackupSuccess` metric to the `MediaBackup` CloudWatch namespace: `1` on success and `0` on failure. The alarm in `terraform/` evaluates one day at a time and goes to `ALARM` when **7 consecutive days** are breaching, where a day is breaching if it reported `0` or had no data (`treat_missing_data = "breaching"`).
 
-That window is sized for a weekly schedule: the 7 quiet days between runs stay below the threshold, a failed run adds an eighth breaching day, and a run that never happens is caught on day 8. A longer (7-day) alarm period would line up with the schedule only by coincidence and produce false alarms after a single missed run.
+That window is sized for a weekly schedule: the 6 quiet days between runs stay below the threshold, a failed run adds a seventh breaching day, and a run that never happens is caught the day after it was due. CloudWatch caps an alarm window at 7 days (`EvaluationPeriods * Period <= 604800`), so a one-day period with seven periods is the widest tolerant window available. A single long 7-day period would line up with the schedule only by coincidence and produce false alarms after a missed run.
 
 Set notification targets in `terraform.tfvars`:
 
@@ -123,7 +123,7 @@ aws sns subscribe \
 
 The alarm's namespace must match the script's namespace (`MediaBackup`). If you change one, change the other, or the alarm will sit in `ALARM` forever because it never receives data.
 
-After applying Terraform, give the alarm one evaluation cycle to clear; run the script manually if it stays in `ALARM` because no metric has been published for 8 days.
+After applying Terraform, give the alarm one evaluation cycle to clear; run the script manually if it stays in `ALARM` because no metric has been published for 7 days.
 
 ## CloudWatch Dashboard
 Terraform creates a `media-backup` dashboard with the alarm status, backup success history, S3 bucket size and object count, SNS deliveries, and estimated AWS charges. Set `enable_dashboard = false` in `terraform.tfvars` if you do not want it.

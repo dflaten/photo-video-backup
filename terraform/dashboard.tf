@@ -134,7 +134,7 @@ resource "aws_cloudwatch_dashboard" "media_backup" {
             - Bucket: `${aws_s3_bucket.photo_video_backup_bucket.id}` (S3 Glacier Deep Archive for media)
             - Media is copied, never deleted. Prune manually (see README).
             - Database dumps: `${aws_s3_bucket.photo_video_backup_bucket.id}/${var.db_backup_key_prefix}` in Standard storage, expired after ${var.db_backup_retention_days} days.
-            - Alarm: `${aws_cloudwatch_metric_alarm.media_backup_failure_alarm.alarm_name}` — 8 consecutive breaching days, missing data is breaching
+            - Alarm: `${aws_cloudwatch_metric_alarm.media_backup_failure_alarm.alarm_name}` — 7 consecutive breaching days, missing data is breaching
             - S3 storage metrics and SNS metrics shown here are free. S3 request metrics are intentionally not used: CloudWatch bills them as custom metrics.
             - Costs: 1 custom metric (~$0.30/mo) + 1 alarm (~$0.10/mo) + dashboard (free for the first 3, then $3/mo).
             - The billing graph requires "Receive Billing Alerts" to be enabled in the account preferences, and stays empty otherwise.

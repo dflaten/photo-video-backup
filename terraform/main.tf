@@ -147,16 +147,18 @@ resource "aws_iam_user_policy_attachment" "backup_user_policy_attachement" {
 # Create alarm for backup metric
 # The script publishes 1 on success and 0 on failure, at most once a week.
 #
-# A 7-day period would line up with the schedule only by coincidence: one
-# missed run shifts the phase, leaves a period with no datapoints, and causes
-# alternating false alarms. Instead, evaluate one day at a time and require
-# eight consecutive breaching days. The 7 quiet days between weekly runs stay
-# below the threshold; a failed run (0) or an eighth day with no data trips it.
+# A single 7-day period would line up with the schedule only by coincidence:
+# one missed run shifts the phase, leaves a period with no datapoints, and
+# causes alternating false alarms. Instead, evaluate one day at a time and
+# require seven consecutive breaching days. CloudWatch caps the window at
+# 7 days (EvaluationPeriods * Period <= 604800), so this is the widest
+# tolerant window available. The 6 quiet days between weekly runs stay below
+# the threshold; a failed run adds a seventh breaching day.
 resource "aws_cloudwatch_metric_alarm" "media_backup_failure_alarm" {
   alarm_name          = "Media backup failure detected."
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 8
-  datapoints_to_alarm = 8
+  evaluation_periods  = 7
+  datapoints_to_alarm = 7
   metric_name         = "BackupSuccess"
   namespace           = "MediaBackup" # Must match --namespace in daily-photo-video-backup-s3.sh
   period              = 86400         # 1 day
@@ -164,7 +166,7 @@ resource "aws_cloudwatch_metric_alarm" "media_backup_failure_alarm" {
   threshold           = 1
   unit                = "Count"
   treat_missing_data  = "breaching" # A missing run is a failure
-  alarm_description   = "This alarm triggers if a backup reports failure (0) or if no success metric is published for 8 days."
+  alarm_description   = "This alarm triggers if a backup reports failure (0) or if no success metric is published for 7 days."
   alarm_actions       = [aws_sns_topic.backup_alerts.arn]
 }
 
