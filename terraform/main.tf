@@ -20,6 +20,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "photo_video_backu
     }
   }
 }
+resource "aws_s3_bucket_public_access_block" "photo_video_backup_bucket_public_access_block" {
+  bucket = aws_s3_bucket.photo_video_backup_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_policy" "photo_video_backup_bucket_policy" {
   bucket = aws_s3_bucket.photo_video_backup_bucket.id
   policy = jsonencode({
@@ -105,30 +114,46 @@ resource "aws_iam_user_policy_attachment" "backup_user_policy_attachement" {
   policy_arn = aws_iam_policy.s3_user_access_policy.arn
 }
 # Create alarm for backup metric
-# We want to be alarmed if the metric reports a failure (0) at anypoint.
-# We are only evaluating the metric every hour because backups will be done
-# at most once a day.
+# The script publishes 1 on success and 0 on failure, at most once a week.
+# Minimum over the 7-day window catches any failure in the window, and
+# treat_missing_data = "breaching" catches a run that never happened at all.
 resource "aws_cloudwatch_metric_alarm" "media_backup_failure_alarm" {
-  alarm_name            = "Media backup failure detected."
-  comparison_operator   = "LessThanThreshold"
-  evaluation_periods    = 1
-  metric_name           = "BackupSuccess"
-  namespace             = "PersonalBackup"
-  period                = 604800  # 7 days in seconds (60 * 60 * 24 * 7)
-  statistic             = "Maximum"
-  threshold             = 1
-  treat_missing_data    = "breaching"  # Triggers alarm when no data is received
-  alarm_description     = "This alarm triggers if the backup success metric is not published at least once every 7 days or if published with value 0."
-  alarm_actions         = [aws_sns_topic.backup_alerts.arn]
-  insufficient_data_actions = []  # No actions for insufficient data since we're treating missing data as breaching
+  alarm_name                = "Media backup failure detected."
+  comparison_operator       = "LessThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "BackupSuccess"
+  namespace                 = "MediaBackup" # Must match --namespace in daily-photo-video-backup-s3.sh
+  period                    = 604800        # 7 days in seconds (60 * 60 * 24 * 7)
+  statistic                 = "Minimum"
+  threshold                 = 1
+  unit                      = "Count"
+  treat_missing_data        = "breaching" # Triggers alarm when no data is received
+  alarm_description         = "This alarm triggers if any backup reports failure (0) or if no success metric is published within 7 days."
+  alarm_actions             = [aws_sns_topic.backup_alerts.arn]
+  insufficient_data_actions = [] # No actions for insufficient data since we're treating missing data as breaching
 }
 
 resource "aws_sns_topic" "backup_alerts" {
   name = "backup-failure-alerts"
 }
 
+# Email is the cheapest notification path: the first 1,000 deliveries/month are
+# free. The subscription is created only when alert_email is set, and AWS emails
+# a confirmation link that must be clicked once.
+resource "aws_sns_topic_subscription" "email_alert" {
+  count = var.alert_email == "" ? 0 : 1
+
+  topic_arn = aws_sns_topic.backup_alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+# Optional SMS alerts. SMS is charged per message with no free tier, so this is
+# opt-in via alert_phone_number.
 resource "aws_sns_topic_subscription" "sms_alert" {
+  count = var.alert_phone_number == "" ? 0 : 1
+
   topic_arn = aws_sns_topic.backup_alerts.arn
   protocol  = "sms"
-  endpoint  = "+1234567890" # Replace with your phone number in E.164 format
+  endpoint  = var.alert_phone_number
 }
