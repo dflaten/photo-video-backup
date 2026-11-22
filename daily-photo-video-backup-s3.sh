@@ -39,8 +39,16 @@ LOG_DIRECTORY="${LOG_DIRECTORY:-./log}"
 MIN_SOURCE_FILES="${MIN_SOURCE_FILES:-100}"
 REQUIRE_MOUNT="${REQUIRE_MOUNT:-false}"
 LOG_RETENTION_DAYS="${LOG_RETENTION_DAYS:-90}"
-# Empty DB_BACKUP_DIR (not unset) disables database backups.
-DB_BACKUP_DIR="${DB_BACKUP_DIR-$SOURCE_DIR/backups}"
+# Empty DB_BACKUP_DIR (not unset) disables database backups. When unset,
+# auto-detect the Immich layout: recent versions put dumps under
+# <UPLOAD_LOCATION>/backups, and some deployments nest that under immich_files.
+if [[ -z "${DB_BACKUP_DIR+x}" ]]; then
+    if [[ -d "$SOURCE_DIR/immich_files/backups" ]]; then
+        DB_BACKUP_DIR="$SOURCE_DIR/immich_files/backups"
+    else
+        DB_BACKUP_DIR="$SOURCE_DIR/backups"
+    fi
+fi
 DB_BACKUP_PREFIX="${DB_BACKUP_PREFIX:-backups/db}"
 DB_BACKUP_GLOB="${DB_BACKUP_GLOB:-*.sql.gz}"
 DB_BACKUP_MAX_AGE="${DB_BACKUP_MAX_AGE:-90d}"
@@ -131,6 +139,7 @@ if rclone copy "$SOURCE_DIR" "$BUCKET_PATH" \
     --exclude "/thumbs/**" \
     --exclude "**/thumbs/**" \
     --exclude "/backups/**" \
+    --exclude "**/backups/**" \
     --s3-storage-class=DEEP_ARCHIVE \
     --log-file="$LOG_FILE" \
     --log-level INFO \

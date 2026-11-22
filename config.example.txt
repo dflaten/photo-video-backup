@@ -28,8 +28,10 @@ REQUIRE_MOUNT="false"
 
 # Immich database dumps (the .sql.gz files written by Immich's automatic
 # database backup). They are copied to Standard storage -- not Deep Archive --
-# so they can be restored in minutes. Set DB_BACKUP_DIR="" to disable.
-DB_BACKUP_DIR="$SOURCE_DIR/backups"
+# so they can be restored in minutes. Leave DB_BACKUP_DIR unset to auto-detect
+# $SOURCE_DIR/immich_files/backups, then $SOURCE_DIR/backups. Set it to "" to
+# disable database backups.
+# DB_BACKUP_DIR="$SOURCE_DIR/backups"
 DB_BACKUP_PREFIX="backups/db"
 DB_BACKUP_GLOB="*.sql.gz"
 # Only upload dumps newer than this, so old dumps are not re-uploaded after

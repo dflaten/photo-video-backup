@@ -10,7 +10,7 @@ It has been tested with ~21,000 photos and 1,900 videos.
 
 The media backup uses `rclone copy`, not `rclone sync`: files are added to the archive and **never deleted automatically**. Removing a photo from Immich, or a drive that fails to mount, cannot remove anything from S3. Pruning the archive is a deliberate manual step (see [Pruning](#pruning-the-archive)). Files are compared by size (`--size-only`); an in-place edit that keeps the same byte size will not be re-uploaded, which is a deliberate trade-off for immutable Immich assets.
 
-Immich database dumps (`*.sql.gz`) are copied to a separate `backups/db/` prefix in **Standard** storage, not Deep Archive, so restoring a recent dump takes minutes instead of hours. They expire after 90 days via an S3 lifecycle rule. The run fails if the newest dump is more than 8 days old, so an Immich database backup that silently stops is caught instead of copying nothing.
+Immich database dumps (`*.sql.gz`) are copied to a separate `backups/db/` prefix in **Standard** storage, not Deep Archive, so restoring a recent dump takes minutes instead of hours. They expire after 90 days via an S3 lifecycle rule. The run fails if the newest dump is more than 8 days old, so an Immich database backup that silently stops is caught instead of copying nothing. Immich writes dumps under `UPLOAD_LOCATION/backups`; if `SOURCE_DIR` is the parent of the upload location (for example `/media/usb/immich` with `UPLOAD_LOCATION=/media/usb/immich/immich_files`), the script auto-detects `immich_files/backups`.
 
 The aws cli is useful for verification on the machine running immich, you can install with snap by using:
 `snap install aws-cli --classic`
@@ -49,7 +49,7 @@ Other settings in `config.example.txt`:
 | --- | --- |
 | `MIN_SOURCE_FILES` | Refuse to run when the source has fewer files than this. Set it well below your normal count to catch an unmounted drive or an empty library. |
 | `REQUIRE_MOUNT` | Set to `true` when `SOURCE_DIR` itself is a mountpoint that must be mounted. |
-| `DB_BACKUP_DIR` | Directory containing Immich's `.sql.gz` dumps. Set to `""` to disable database backups. |
+| `DB_BACKUP_DIR` | Directory containing Immich's `.sql.gz` dumps. Auto-detects `$SOURCE_DIR/immich_files/backups`, then `$SOURCE_DIR/backups`. Set to `""` to disable database backups. |
 | `DB_BACKUP_PREFIX` | S3 prefix for dumps (default `backups/db`). Must stay Standard storage, not Deep Archive. If `BUCKET_PATH` includes a sub-path, set `db_backup_key_prefix` in `terraform.tfvars` to match (e.g. `backup/backups/db/`). |
 | `DB_BACKUP_MAX_AGE` | Only upload dumps newer than this (default `90d`), so expired dumps are not re-uploaded. |
 | `DB_BACKUP_MIN_AGE` | Skip dumps modified more recently than this (default `5m`), so a dump still being written is not uploaded half-finished. |
@@ -152,7 +152,8 @@ Deleted photos stay in the archive on purpose. To find objects that no longer ex
 
 ```bash
 rclone check "$SOURCE_DIR" "$BUCKET_PATH" --size-only \
-  --exclude "/thumbs/**" --exclude "**/thumbs/**" --exclude "/backups/**" \
+  --exclude "/thumbs/**" --exclude "**/thumbs/**" \
+  --exclude "/backups/**" --exclude "**/backups/**" \
   --missing-on-src /tmp/only-in-s3.txt
 ```
 
