@@ -197,6 +197,8 @@ The terraform included here includes the AWS infra needed as a part of the backu
 * CloudWatch metric alarm and SNS topic for failure notifications
 * CloudWatch dashboard for backup and bucket stats
 
+The provider is pinned to `us-east-1`. The script publishes its metric to the region in `AWS_REGION`, and CloudWatch alarms are regional, so if you change one, change the other (the provider block in `terraform/main.tf` and `AWS_REGION` in `config.txt`).
+
 Confidential information like the AWS account is kept in a `terraform.tfvars` file which is in the form:
 
 ```terraform
