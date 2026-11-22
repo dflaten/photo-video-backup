@@ -106,7 +106,7 @@ fi
 
 # Count only files that will actually be copied: a stale thumbs/ or backups/
 # directory must not make a broken media source look healthy.
-SOURCE_FILE_COUNT=$(find "$SOURCE_DIR" \
+SOURCE_FILE_COUNT=$(find "$SOURCE_DIR" -mindepth 1 \
     -type d \( -name thumbs -o -name backups \) -prune -o \
     -type f -printf '.' 2>/dev/null | wc -c)
 if (( SOURCE_FILE_COUNT < MIN_SOURCE_FILES )); then
